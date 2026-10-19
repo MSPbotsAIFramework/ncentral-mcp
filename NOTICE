@@ -1,0 +1,8 @@
+N-central MCP Server
+Copyright 2026 MSPbots.ai
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+"N-able" and "N-central" are trademarks of their respective owner. This project
+is an independent integration that calls the documented N-central REST API; it
+contains no N-able source code and is not affiliated with or endorsed by N-able.
