@@ -37,7 +37,7 @@ HTTP 400.
 ## Tools
 
 All tools return a JSON string. Paged lists take `pageNumber` (from 1), `pageSize` (default 50,
-max 1000), `sortBy` and `sortOrder` (`asc` / `desc`; `ascending`, `natural`, `descending` and
+max 200), `sortBy` and `sortOrder` (`asc` / `desc`; `ascending`, `natural`, `descending` and
 `reverse` are also accepted) and add `summary {count, total, page, total_pages, has_more,
 next_page}`. Customer and site ids are org unit ids.
 

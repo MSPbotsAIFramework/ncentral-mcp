@@ -39,6 +39,7 @@ NOT_CONFIGURED = error_envelope(
 )
 
 DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
 
 DeviceId = Annotated[int, Field(description="Device id (from ncentral_list_devices).", ge=1)]
 OrgUnitId = Annotated[int, Field(description="Org unit id: a service organization, customer or site id.", ge=1)]
@@ -48,7 +49,7 @@ Confirm = Annotated[bool | None, Field(description="Must be true to delete; ask 
 
 PageNumber = Annotated[int | None, Field(description="Page number, from 1 (default 1).", ge=1)]
 PageSize = Annotated[
-    int | None, Field(description=f"Items per page, 1-1000 (default {DEFAULT_PAGE_SIZE}).", ge=1, le=1000)
+    int | None, Field(description=f"Items per page, 1-{MAX_PAGE_SIZE} (default {DEFAULT_PAGE_SIZE}).", ge=1, le=MAX_PAGE_SIZE)
 ]
 SortBy = Annotated[str | None, Field(description="Field to sort by, e.g. longName.")]
 SortOrder = Annotated[

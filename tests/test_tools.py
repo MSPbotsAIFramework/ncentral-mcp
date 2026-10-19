@@ -17,6 +17,7 @@ import asyncio
 import json
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from ncentral_mcp.api_client import NcentralError
 from ncentral_mcp.server import INSTRUCTIONS, create_mcp_server
@@ -124,6 +125,15 @@ def test_write_tools_say_when_to_use_them(tools, name):
 def test_list_tools_take_paging(tools):
     properties = tools["ncentral_list_devices"].inputSchema["properties"]
     assert {"filterId", "pageNumber", "pageSize", "sortBy", "sortOrder"} <= set(properties)
+
+
+def test_page_size_is_capped_at_200(tools):
+    paged = [t for t in tools.values() if "pageSize" in t.inputSchema["properties"]]
+    assert len(paged) == 11
+    for tool in paged:
+        assert tool.inputSchema["properties"]["pageSize"]["anyOf"][0]["maximum"] == 200, tool.name
+    with pytest.raises(ToolError, match="less than or equal to 200"):
+        asyncio.run(create_mcp_server().call_tool("ncentral_list_devices", {"pageSize": 201}))
 
 
 def test_instructions_budget():
