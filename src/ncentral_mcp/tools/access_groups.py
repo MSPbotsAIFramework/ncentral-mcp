@@ -30,6 +30,7 @@ from ._common import (
     SortOrder,
     compact,
     entity,
+    enum_value,
     list_result,
     page_params,
     run_tool,
@@ -38,6 +39,7 @@ from ._common import (
 GroupName = Annotated[str, Field(description="Access group name.", min_length=1)]
 GroupDescription = Annotated[str, Field(description="Access group description.")]
 UserIds = Annotated[list[str | int] | None, Field(description="User ids to give the group's access.")]
+AutoInclude = Literal["true", "false"]
 
 
 def _ids(values: list[str | int] | None) -> list[str] | None:
@@ -106,7 +108,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         orgUnitIds: Annotated[list[str | int] | None, Field(description="Org unit ids in the group.")] = None,
         userIds: UserIds = None,
         autoIncludeNewOrgUnits: Annotated[
-            Literal["true", "false"] | None, Field(description="Add org units created later automatically.")
+            AutoInclude | str | None, Field(description="Add org units created later automatically.")
         ] = None,
     ) -> str:
         """Create an access group giving users access to chosen org units. Only when the user explicitly asks."""
@@ -118,7 +120,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                     "groupDescription": groupDescription,
                     "orgUnitIds": _ids(orgUnitIds),
                     "userIds": _ids(userIds),
-                    "autoIncludeNewOrgUnits": autoIncludeNewOrgUnits,
+                    "autoIncludeNewOrgUnits": enum_value(autoIncludeNewOrgUnits, AutoInclude),
                 }
             )
             result = await client.post(f"org-units/{orgUnitId}/access-groups", body)

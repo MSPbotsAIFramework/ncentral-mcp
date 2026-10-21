@@ -290,3 +290,47 @@ async def test_wrong_server_url_is_explained(monkeypatch):
     result = await _call(monkeypatch, rec, "ncentral_status", {})
     assert result["error"]["code"] == "invalid_argument"
     assert "X-Ncentral-Server-Url" in result["error"]["message"]
+
+
+# ---- compatibility: credential as object or text; free-text enum values ---------------------
+
+
+@pytest.mark.parametrize(
+    "credential,sent",
+    [
+        ({"type": "LocalSystem"}, {"type": "LocalSystem"}),
+        ('{"type": "CustomCredentials", "username": "svc", "password": "pw"}',
+         {"type": "CustomCredentials", "username": "svc", "password": "pw"}),
+        ("localsystem", {"type": "LocalSystem"}),
+        (" DeviceCredentials ", {"type": "DeviceCredentials"}),
+    ],
+)
+async def test_direct_task_credential_object_or_text(monkeypatch, credential, sent):
+    rec = Recorder({"POST scheduled-tasks/direct": {"data": {"taskId": 77}}})
+    args = {"name": "x", "deviceId": 9, "itemId": 1, "taskType": "Script", "customerId": 1, "credential": credential}
+    await _call(monkeypatch, rec, "ncentral_create_direct_task", args)
+    assert body(rec.calls("POST", "scheduled-tasks/direct")[0])["credential"] == sent
+
+
+async def test_direct_task_unreadable_credential_text(monkeypatch):
+    rec = Recorder()
+    args = {"name": "x", "deviceId": 9, "itemId": 1, "taskType": "Script", "customerId": 1, "credential": "{bad"}
+    result = await _call(monkeypatch, rec, "ncentral_create_direct_task", args)
+    assert result["error"]["code"] == "invalid_argument"
+    assert not rec.calls("POST", "scheduled-tasks/direct")
+
+
+@pytest.mark.parametrize("given,sent", [("script", "Script"), ("AUTOMATIONPOLICY", "AutomationPolicy"), ("PowerShell", "PowerShell")])
+async def test_direct_task_type_normalized_or_passed_through(monkeypatch, given, sent):
+    rec = Recorder({"POST scheduled-tasks/direct": {"data": {"taskId": 77}}})
+    args = {"name": "x", "deviceId": 9, "itemId": 1, "taskType": given, "customerId": 1, "credential": {"type": "LocalSystem"}}
+    await _call(monkeypatch, rec, "ncentral_create_direct_task", args)
+    assert body(rec.calls("POST", "scheduled-tasks/direct")[0])["taskType"] == sent
+
+
+@pytest.mark.parametrize("given,sent", [("True", "true"), ("FALSE", "false"), ("yes", "yes")])
+async def test_access_group_auto_include_normalized_or_passed_through(monkeypatch, given, sent):
+    rec = Recorder({"POST org-units/3/access-groups": lambda r: httpx.Response(201, content=b"")})
+    args = {"orgUnitId": 3, "groupName": "Techs", "groupDescription": "", "autoIncludeNewOrgUnits": given}
+    await _call(monkeypatch, rec, "ncentral_create_org_unit_access_group", args)
+    assert body(rec.calls("POST", "org-units/3/access-groups")[0])["autoIncludeNewOrgUnits"] == sent

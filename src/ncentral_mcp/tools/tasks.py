@@ -13,6 +13,7 @@
 # limitations under the License.
 """Scheduled tasks: per-device lists, status, and direct-support (run now) tasks."""
 
+import json
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -26,13 +27,18 @@ from ._common import (
     DeviceId,
     TaskId,
     entity,
+    enum_value,
     list_result,
     run_tool,
 )
 
 
+CredentialType = Literal["LocalSystem", "DeviceCredentials", "CustomCredentials"]
+TaskType = Literal["AutomationPolicy", "Script", "MacScript"]
+
+
 class TaskCredential(BaseModel):
-    type: Literal["LocalSystem", "DeviceCredentials", "CustomCredentials"] = Field(
+    type: CredentialType = Field(
         description="Run as the local system account, the device's stored credentials, or the username / password given."
     )
     username: str | None = Field(default=None, description="Only for CustomCredentials.")
@@ -44,6 +50,19 @@ class TaskParameter(BaseModel):
     value: str | None = Field(default=None, description="Parameter value.")
     description: str | None = Field(default=None, description="Defaults to the name.")
     type: Literal["string", "integer", "boolean", "text", "dword"] | None = Field(default=None, description="Default string.")
+
+
+def _credential(value: TaskCredential | str) -> TaskCredential:
+    """Accept the credential object, its JSON text, or just the type name (e.g. LocalSystem)."""
+    if isinstance(value, TaskCredential):
+        return value
+    text = value.strip()
+    if text.startswith("{"):
+        try:
+            return TaskCredential.model_validate(json.loads(text))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"credential is not valid JSON: {e.msg}.") from None
+    return TaskCredential.model_validate({"type": enum_value(text, CredentialType)})
 
 
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
@@ -88,9 +107,12 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         name: Annotated[str, Field(description="Task name; must be unique.", min_length=1)],
         deviceId: DeviceId,
         itemId: Annotated[int, Field(description="Script or automation policy id in the N-central repository.", ge=1)],
-        taskType: Annotated[Literal["AutomationPolicy", "Script", "MacScript"], Field(description="What itemId is.")],
+        taskType: Annotated[TaskType | str, Field(description="What itemId is.")],
         customerId: Annotated[int, Field(description="Customer that owns the device.", ge=1)],
-        credential: Annotated[TaskCredential, Field(description="Account the task runs as.")],
+        credential: Annotated[
+            TaskCredential | str,
+            Field(description="Account the task runs as. A string is read as the object's JSON text or just its type."),
+        ],
         parameters: Annotated[list[TaskParameter] | None, Field(description="Script / policy parameters.")] = None,
     ) -> str:
         """Run a script or automation policy on one device now. Only when the user explicitly asks.
@@ -99,15 +121,16 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         """
 
         async def action(client: NcentralClient) -> Any:
-            if credential.type == "CustomCredentials" and not (credential.username and credential.password):
+            run_as = _credential(credential)
+            if run_as.type == "CustomCredentials" and not (run_as.username and run_as.password):
                 raise ValueError("CustomCredentials needs credential.username and credential.password.")
             body: dict[str, Any] = {
                 "name": name.strip(),
                 "itemId": itemId,
-                "taskType": taskType,
+                "taskType": enum_value(taskType, TaskType),
                 "customerId": customerId,
                 "deviceId": deviceId,
-                "credential": credential.model_dump(exclude_none=True),
+                "credential": run_as.model_dump(exclude_none=True),
             }
             if parameters:
                 body["parameters"] = [
