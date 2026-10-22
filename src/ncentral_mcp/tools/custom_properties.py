@@ -24,6 +24,7 @@ from ._common import (
     READ_ONLY,
     ClientFactory,
     DeviceId,
+    Offset,
     OrgUnitId,
     PageNumber,
     PageSize,
@@ -32,7 +33,7 @@ from ._common import (
     SortOrder,
     entity,
     list_result,
-    page_params,
+    paged,
     run_tool,
 )
 
@@ -56,12 +57,13 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List an org unit's custom properties with their type and value."""
 
         async def action(client: NcentralClient) -> Any:
-            params = page_params(pageNumber, pageSize, sortBy, sortOrder)
-            return list_result(await client.get(f"org-units/{orgUnitId}/custom-properties", params))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(f"org-units/{orgUnitId}/custom-properties", params), **pos)
 
         return await run_tool("ncentral_list_org_custom_properties", client_factory, action)
 

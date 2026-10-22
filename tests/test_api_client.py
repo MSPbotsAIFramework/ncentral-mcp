@@ -334,3 +334,131 @@ async def test_access_group_auto_include_normalized_or_passed_through(monkeypatc
     args = {"orgUnitId": 3, "groupName": "Techs", "groupDescription": "", "autoIncludeNewOrgUnits": given}
     await _call(monkeypatch, rec, "ncentral_create_org_unit_access_group", args)
     assert body(rec.calls("POST", "org-units/3/access-groups")[0])["autoIncludeNewOrgUnits"] == sent
+
+
+# ---------------------------------------------------------------------------
+# Page-number paging that survives truncation (offset / next_offset)
+# ---------------------------------------------------------------------------
+
+PAGED_TOOLS = [
+    ("ncentral_list_service_orgs", {}, "service-orgs"),
+    ("ncentral_list_customers", {}, "customers"),
+    ("ncentral_list_sites", {"customerId": 100}, "customers/100/sites"),
+    ("ncentral_list_org_units", {}, "org-units"),
+    ("ncentral_list_org_unit_children", {"orgUnitId": 1}, "org-units/1/children"),
+    ("ncentral_list_devices", {"filterId": 7}, "devices"),
+    ("ncentral_list_devices_by_org_unit", {"orgUnitId": 100}, "org-units/100/devices"),
+    ("ncentral_list_device_filters", {}, "device-filters"),
+    ("ncentral_list_active_issues", {"orgUnitId": 100}, "org-units/100/active-issues"),
+    ("ncentral_list_org_custom_properties", {"orgUnitId": 100}, "org-units/100/custom-properties"),
+    ("ncentral_list_access_groups", {"orgUnitId": 100}, "org-units/100/access-groups"),
+]
+
+
+def _big_records(n: int) -> list[dict]:
+    # 40 fields of 80 characters: nothing to shorten, so only a few records fit one response.
+    return [{"id": i, **{f"f{k}": f"{i:04d}" + "x" * 76 for k in range(40)}} for i in range(n)]
+
+
+def _small_records(n: int) -> list[dict]:
+    return [{"id": i} for i in range(n)]
+
+
+def _paged_api(records: list[dict]):
+    """N-central pages by pageNumber (from 1, default 1) and pageSize only."""
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        number = int(request.url.params.get("pageNumber", 1))
+        size = int(request.url.params["pageSize"])
+        pages = max(1, -(-len(records) // size))
+        data = records[(number - 1) * size : number * size]
+        return httpx.Response(200, json={"data": data, "pageNumber": number, "pageSize": size, "itemCount": len(data),
+                                         "totalItems": len(records), "totalPages": pages, "_links": {}})
+
+    return reply
+
+
+def _ids(result: dict) -> list[int]:
+    return [r["id"] for r in result["data"]]
+
+
+async def _walk(monkeypatch, tool: str, args: dict, path: str, records: list[dict], first: dict) -> tuple[list[int], list[dict]]:
+    rec = Recorder({path: _paged_api(records)})
+    results = [await _call(monkeypatch, rec, tool, {**args, **first})]
+    while results[-1].get("next_offset") is not None:
+        assert len(results) < 50
+        results.append(await _call(monkeypatch, rec, tool, {**args, "pageSize": first["pageSize"], "offset": results[-1]["next_offset"]}))
+    return [i for r in results for i in _ids(r)], results
+
+
+@pytest.mark.parametrize("tool,args,path", PAGED_TOOLS)
+async def test_cut_pages_walked_by_next_offset_return_every_record_once(monkeypatch, tool, args, path):
+    records = _big_records(35)
+    ids, results = await _walk(monkeypatch, tool, args, path, records, {"pageNumber": 1, "pageSize": 10})
+    assert ids == list(range(35))
+    assert any(r.get("truncated") for r in results)
+    for r in results:
+        if r.get("truncated"):
+            assert "retry_page_size" not in r and r["next_offset"] == r["offset"] + len(r["data"])
+    assert results[-1]["summary"]["has_more"] is False and results[-1]["next_offset"] is None
+
+
+@pytest.mark.parametrize("tool,args,path", PAGED_TOOLS)
+async def test_cut_pages_walked_from_a_later_page(monkeypatch, tool, args, path):
+    records = _big_records(35)
+    ids, _ = await _walk(monkeypatch, tool, args, path, records, {"pageNumber": 3, "pageSize": 10})
+    assert ids == list(range(20, 35))
+
+
+@pytest.mark.parametrize(
+    "offset,page_sent,expected",
+    [(13, "2", list(range(13, 20))), (10, "2", list(range(10, 20))), (0, "1", list(range(10))), (24, "3", [24])],
+)
+async def test_offset_reads_the_page_that_holds_it(monkeypatch, offset, page_sent, expected):
+    rec = Recorder({"devices": _paged_api(_small_records(25))})
+    result = await _call(monkeypatch, rec, "ncentral_list_devices", {"pageSize": 10, "offset": offset})
+    assert rec.last().url.params["pageNumber"] == page_sent and rec.last().url.params["pageSize"] == "10"
+    assert _ids(result) == expected
+    assert result["offset"] == offset
+    assert result["next_offset"] == (offset + len(expected) if offset + len(expected) < 25 else None)
+
+
+async def test_offset_with_default_page_size(monkeypatch):
+    rec = Recorder({"devices": _paged_api(_small_records(120))})
+    result = await _call(monkeypatch, rec, "ncentral_list_devices", {"offset": 75})
+    assert rec.last().url.params["pageNumber"] == "2" and rec.last().url.params["pageSize"] == "50"
+    assert _ids(result) == list(range(75, 100)) and result["next_offset"] == 100
+
+
+@pytest.mark.parametrize("tool,args,path", PAGED_TOOLS)
+async def test_offset_past_the_end(monkeypatch, tool, args, path):
+    rec = Recorder({path: _paged_api(_small_records(25))})
+    result = await _call(monkeypatch, rec, tool, {**args, "pageSize": 10, "offset": 40})
+    assert result["data"] == [] and result["summary"]["has_more"] is False
+    assert result["next_offset"] is None
+
+
+async def test_offset_wins_over_page_number(monkeypatch):
+    rec = Recorder({"devices": _paged_api(_small_records(25))})
+    result = await _call(monkeypatch, rec, "ncentral_list_devices", {"pageNumber": 1, "pageSize": 10, "offset": 15})
+    assert rec.last().url.params["pageNumber"] == "2"
+    assert _ids(result) == list(range(15, 20))
+
+
+@pytest.mark.parametrize("tool,args,path", PAGED_TOOLS)
+@pytest.mark.parametrize("paging", [{}, {"pageNumber": 2}, {"pageNumber": 2, "pageSize": 10, "sortBy": "id", "sortOrder": "desc"}])
+async def test_page_number_only_call_is_unchanged(monkeypatch, tool, args, path, paging):
+    rec = Recorder({path: _paged_api(_small_records(125))})
+    result = await _call(monkeypatch, rec, tool, {**args, **paging})
+    expected = {"pageSize": str(paging.get("pageSize", 50))}
+    if "pageNumber" in paging:
+        expected["pageNumber"] = str(paging["pageNumber"])
+    if "sortBy" in paging:
+        expected |= {"sortBy": "id", "sortOrder": "desc"}
+    if "filterId" in args:
+        expected["filterId"] = str(args["filterId"])
+    assert dict(rec.last().url.params) == expected
+    size, number = paging.get("pageSize", 50), paging.get("pageNumber", 1)
+    assert _ids(result) == list(range((number - 1) * size, min(number * size, 125)))
+    assert result["summary"]["page"] == number and result["summary"]["has_more"] is True
+    assert result["summary"]["next_page"] == number + 1

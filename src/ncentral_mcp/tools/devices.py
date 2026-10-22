@@ -24,6 +24,7 @@ from ._common import (
     READ_ONLY,
     ClientFactory,
     DeviceId,
+    Offset,
     OrgUnitId,
     PageNumber,
     PageSize,
@@ -32,7 +33,7 @@ from ._common import (
     compact,
     entity,
     list_result,
-    page_params,
+    paged,
     run_tool,
 )
 
@@ -56,12 +57,14 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List devices the API user can see, optionally through a saved device filter."""
 
         async def action(client: NcentralClient) -> Any:
-            params = page_params(pageNumber, pageSize, sortBy, sortOrder) | compact({"filterId": filterId})
-            return list_result(await client.get("devices", params))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            params |= compact({"filterId": filterId})
+            return list_result(await client.get("devices", params), **pos)
 
         return await run_tool("ncentral_list_devices", client_factory, action)
 
@@ -132,22 +135,28 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List the devices under an org unit (a customer or site id)."""
 
         async def action(client: NcentralClient) -> Any:
-            params = page_params(pageNumber, pageSize, sortBy, sortOrder)
-            return list_result(await client.get(f"org-units/{orgUnitId}/devices", params))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(f"org-units/{orgUnitId}/devices", params), **pos)
 
         return await run_tool("ncentral_list_devices_by_org_unit", client_factory, action)
 
     @mcp.tool(annotations=READ_ONLY)
     async def ncentral_list_device_filters(
-        pageNumber: PageNumber = None, pageSize: PageSize = None, sortBy: SortBy = None, sortOrder: SortOrder = None
+        pageNumber: PageNumber = None,
+        pageSize: PageSize = None,
+        sortBy: SortBy = None,
+        sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List the saved device filters (ids for ncentral_list_devices filterId)."""
 
         async def action(client: NcentralClient) -> Any:
-            return list_result(await client.get("device-filters", page_params(pageNumber, pageSize, sortBy, sortOrder)))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get("device-filters", params), **pos)
 
         return await run_tool("ncentral_list_device_filters", client_factory, action)

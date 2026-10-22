@@ -51,6 +51,10 @@ PageNumber = Annotated[int | None, Field(description="Page number, from 1 (defau
 PageSize = Annotated[
     int | None, Field(description=f"Items per page, 1-{MAX_PAGE_SIZE} (default {DEFAULT_PAGE_SIZE}).", ge=1, le=MAX_PAGE_SIZE)
 ]
+Offset = Annotated[
+    int | None,
+    Field(description="Record position to start from (0-based, overrides pageNumber); pass next_offset from the previous result.", ge=0),
+]
 SortBy = Annotated[str | None, Field(description="Field to sort by, e.g. longName.")]
 SortOrder = Annotated[
     Literal["asc", "ascending", "natural", "desc", "descending", "reverse"] | None,
@@ -80,19 +84,66 @@ def page_params(
     )
 
 
-def list_result(payload: Any) -> Any:
-    """Add a paging summary to {data, totalItems[, pageNumber, totalPages]} lists."""
+def locate(offset: int | None, page_number: int | None, page_size: int | None) -> tuple[int, int, int]:
+    """(pageNumber, pageSize, start) for a read from record ``start``.
+
+    N-central pages by number only, so a position is reached by asking for the page that
+    holds it (same page size) and skipping the records before it.
+    """
+    size = page_size or DEFAULT_PAGE_SIZE
+    start = offset if offset is not None else ((page_number or 1) - 1) * size
+    return start // size + 1, size, start
+
+
+def paged(
+    offset: int | None, page_number: int | None, page_size: int | None, sort_by: str | None, sort_order: str | None
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """Query parameters plus the ``list_result`` position for a read from ``offset`` or ``page_number``.
+
+    Without an offset the request is exactly the one ``page_params`` builds (pageNumber is only
+    sent when given).
+    """
+    number, size, start = locate(offset, page_number, page_size)
+    params = page_params(page_number if offset is None else number, size, sort_by, sort_order)
+    return params, {"number": number, "size": size, "start": start}
+
+
+def list_result(payload: Any, number: int | None = None, size: int | None = None, start: int | None = None) -> Any:
+    """Add a paging summary to {data, totalItems[, pageNumber, totalPages]} lists.
+
+    With the requested page ``number`` and ``size`` the records are taken from record ``start``
+    of that page and ``offset`` / ``next_offset`` are added. next_offset continues right after
+    the last record returned, also when the result is cut to fit the size limit (a page number
+    cannot: the rest of a cut page is not on any other page).
+    """
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         return payload
     data = payload["data"]
-    summary: dict[str, Any] = {"count": len(data), "total": payload.get("totalItems", len(data))}
+    first = None
+    if number is not None and size is not None:
+        first = (number - 1) * size
+        start = first if start is None else start
+        payload = {**payload, "data": data[start - first :]}
+    summary: dict[str, Any] = {"count": len(payload["data"]), "total": payload.get("totalItems", len(data))}
+    more = None
     if "pageNumber" in payload:
         page, pages = payload.get("pageNumber") or 1, payload.get("totalPages") or 1
-        summary |= {"page": page, "total_pages": pages, "has_more": page < pages}
+        more = page < pages
+        summary |= {"page": page, "total_pages": pages, "has_more": more}
         if page < pages:
             summary["next_page"] = page + 1
     body = {k: v for k, v in payload.items() if k != "_links"}
-    return {"summary": summary, **body}
+    shaped = {"summary": summary, **body}
+    if first is not None:
+        if more is None:
+            total = payload.get("totalItems")
+            more = isinstance(total, int) and first + len(data) < total
+        shaped |= {
+            "offset": start,
+            "next_offset": start + len(payload["data"]) if more else None,
+            "_resume": {"key": "next_offset", "start": start},
+        }
+    return shaped
 
 
 def entity(payload: Any) -> Any:

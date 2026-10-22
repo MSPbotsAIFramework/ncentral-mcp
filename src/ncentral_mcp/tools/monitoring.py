@@ -22,13 +22,14 @@ from ..api_client import NcentralClient
 from ._common import (
     READ_ONLY,
     ClientFactory,
+    Offset,
     OrgUnitId,
     PageNumber,
     PageSize,
     SortBy,
     SortOrder,
     list_result,
-    page_params,
+    paged,
     run_tool,
 )
 
@@ -41,12 +42,13 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List active monitoring issues (failed / warning services) of a customer or site."""
 
         async def action(client: NcentralClient) -> Any:
-            params = page_params(pageNumber, pageSize, sortBy, sortOrder)
-            return list_result(await client.get(f"org-units/{orgUnitId}/active-issues", params))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(f"org-units/{orgUnitId}/active-issues", params), **pos)
 
         return await run_tool("ncentral_list_active_issues", client_factory, action)
 

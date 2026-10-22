@@ -23,6 +23,7 @@ from ._common import (
     READ_ONLY,
     WRITES,
     ClientFactory,
+    Offset,
     OrgUnitId,
     PageNumber,
     PageSize,
@@ -32,7 +33,7 @@ from ._common import (
     entity,
     enum_value,
     list_result,
-    page_params,
+    paged,
     run_tool,
 )
 
@@ -56,12 +57,13 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List the access groups of an org unit."""
 
         async def action(client: NcentralClient) -> Any:
-            params = page_params(pageNumber, pageSize, sortBy, sortOrder)
-            return list_result(await client.get(f"org-units/{orgUnitId}/access-groups", params))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(f"org-units/{orgUnitId}/access-groups", params), **pos)
 
         return await run_tool("ncentral_list_access_groups", client_factory, action)
 

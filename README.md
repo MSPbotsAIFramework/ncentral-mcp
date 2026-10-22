@@ -39,7 +39,10 @@ HTTP 400.
 All tools return a JSON string. Paged lists take `pageNumber` (from 1), `pageSize` (default 50,
 max 200), `sortBy` and `sortOrder` (`asc` / `desc`; `ascending`, `natural`, `descending` and
 `reverse` are also accepted) and add `summary {count, total, page, total_pages, has_more,
-next_page}`. Customer and site ids are org unit ids.
+next_page}`. They also take `offset` (record position from 0, overrides `pageNumber`) and return
+`offset` / `next_offset`: when a page is too large for one response only the records that fit
+are returned, and `next_offset` continues right after them (the rest of a cut page is on no
+other page number). Customer and site ids are org unit ids.
 
 | Tool | Purpose | Parameters (required in **bold**) |
 |---|---|---|

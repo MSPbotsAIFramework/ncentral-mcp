@@ -22,6 +22,7 @@ from ..api_client import NcentralClient
 from ._common import (
     READ_ONLY,
     ClientFactory,
+    Offset,
     OrgUnitId,
     PageNumber,
     PageSize,
@@ -29,7 +30,7 @@ from ._common import (
     SortOrder,
     entity,
     list_result,
-    page_params,
+    paged,
     run_tool,
 )
 
@@ -37,12 +38,17 @@ from ._common import (
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     @mcp.tool(annotations=READ_ONLY)
     async def ncentral_list_service_orgs(
-        pageNumber: PageNumber = None, pageSize: PageSize = None, sortBy: SortBy = None, sortOrder: SortOrder = None
+        pageNumber: PageNumber = None,
+        pageSize: PageSize = None,
+        sortBy: SortBy = None,
+        sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List service organizations (the top-level org units under the system)."""
 
         async def action(client: NcentralClient) -> Any:
-            return list_result(await client.get("service-orgs", page_params(pageNumber, pageSize, sortBy, sortOrder)))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get("service-orgs", params), **pos)
 
         return await run_tool("ncentral_list_service_orgs", client_factory, action)
 
@@ -53,12 +59,14 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List customers (all, or those of one service organization)."""
 
         async def action(client: NcentralClient) -> Any:
             path = f"service-orgs/{soId}/customers" if soId else "customers"
-            return list_result(await client.get(path, page_params(pageNumber, pageSize, sortBy, sortOrder)))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(path, params), **pos)
 
         return await run_tool("ncentral_list_customers", client_factory, action)
 
@@ -78,12 +86,14 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List sites (all, or those of one customer)."""
 
         async def action(client: NcentralClient) -> Any:
             path = f"customers/{customerId}/sites" if customerId else "sites"
-            return list_result(await client.get(path, page_params(pageNumber, pageSize, sortBy, sortOrder)))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(path, params), **pos)
 
         return await run_tool("ncentral_list_sites", client_factory, action)
 
@@ -98,12 +108,17 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
 
     @mcp.tool(annotations=READ_ONLY)
     async def ncentral_list_org_units(
-        pageNumber: PageNumber = None, pageSize: PageSize = None, sortBy: SortBy = None, sortOrder: SortOrder = None
+        pageNumber: PageNumber = None,
+        pageSize: PageSize = None,
+        sortBy: SortBy = None,
+        sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List every org unit (system, service organizations, customers, sites) with its type and parent."""
 
         async def action(client: NcentralClient) -> Any:
-            return list_result(await client.get("org-units", page_params(pageNumber, pageSize, sortBy, sortOrder)))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get("org-units", params), **pos)
 
         return await run_tool("ncentral_list_org_units", client_factory, action)
 
@@ -123,12 +138,13 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         pageSize: PageSize = None,
         sortBy: SortBy = None,
         sortOrder: SortOrder = None,
+        offset: Offset = None,
     ) -> str:
         """List the org units directly under an org unit."""
 
         async def action(client: NcentralClient) -> Any:
-            params = page_params(pageNumber, pageSize, sortBy, sortOrder)
-            return list_result(await client.get(f"org-units/{orgUnitId}/children", params))
+            params, pos = paged(offset, pageNumber, pageSize, sortBy, sortOrder)
+            return list_result(await client.get(f"org-units/{orgUnitId}/children", params), **pos)
 
         return await run_tool("ncentral_list_org_unit_children", client_factory, action)
 
