@@ -462,3 +462,14 @@ async def test_page_number_only_call_is_unchanged(monkeypatch, tool, args, path,
     assert _ids(result) == list(range((number - 1) * size, min(number * size, 125)))
     assert result["summary"]["page"] == number and result["summary"]["has_more"] is True
     assert result["summary"]["next_page"] == number + 1
+
+
+async def test_cut_page_also_fixes_the_nested_paging_summary(monkeypatch):
+    # The paging summary is nested, so the size limit's own cleanup does not reach it: a cut page
+    # must not keep summary.next_page (it would skip the cut records) or the full page's count.
+    rec = Recorder({"customers": _paged_api(_big_records(35))})
+    result = await _call(monkeypatch, rec, "ncentral_list_customers", {"pageNumber": 1, "pageSize": 35})
+    returned = len(result["data"])
+    assert result["truncated"] is True and 0 < returned < 35 and result["next_offset"] == returned
+    assert "next_page" not in result["summary"] and result["summary"]["has_more"] is True
+    assert result["summary"]["count"] == returned
